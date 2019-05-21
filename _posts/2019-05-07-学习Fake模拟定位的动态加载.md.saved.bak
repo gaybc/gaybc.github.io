@@ -19,10 +19,10 @@ tags:                               #标签
 ## 分析SuperSU日志
 ![SuperSU日志](img/post-fake-supersu.png)
   
-inject -P zygote -l initzygote.so -n fakelocation  
-可以看出是zygote注入，zygote注入可以解决目标进程被ptrace保护的问题  
-linux的zygote机制此处略  
-向zygote进程中注入initzygote.so文件，fakelocation包名作为白名单不注入。
+    inject -P zygote -l initzygote.so -n fakelocation  
+    可以看出是zygote注入，zygote注入可以解决目标进程被ptrace保护的问题  
+    linux的zygote机制此处略  
+    向zygote进程中注入initzygote.so文件，fakelocation包名作为白名单不注入。
 
 
 ## 分析initzygote.so
@@ -128,7 +128,8 @@ LABEL_11:
   return result;
 }
 ```
-main函数里 反射执行了com.lerist.inject.fakelocation.InjectDex.initZygote方法
+main函数里 dexclasslaoder动态加载插件
+反射执行了com.lerist.inject.fakelocation.InjectDex.initZygote方法
 ```java
 public static java.lang.Object[] initZygote(java.lang.Object r3) {
         r0 = new java.lang.StringBuilder;
@@ -187,11 +188,97 @@ com.lerist.lib.lhooker.LHooker类中有多个hook相关JNI方法
 
 ```
 
-## 小结
+## 第一步小结
     1. Fake软件使用了非xposed的hook库
-    2. 通过zygote注入hook用dex，在该dex里加载Hook用so
+    2. 通过zygote注入loader So 反射加载dex，在插件dex里加载Hook用so和java hook代码
     3. 这样做的好处是可以绕过常见xposed检测，又可以对APP进行加固
-    -1.笔者下一步选择使用whale框架+inlinehook，实现自己的hook工具
+    4. 笔者下一步选择使用whale或其他框架+inlinehook，实现自己的hook工具
+    
+
+## 动手模仿
+### hook框架选择
+      笔者找到好几种hook方案，从较早期的StormHook到最新的Whale，包括中间的FastHook
+    在StormHook中有详细的注入教程https://bbs.pediy.com/thread-220760.htm
+    而且Fake使用的看上去像是Epic 本着用新不用旧的原则，踏进了新坑
+    于是我本准备使用Whale框架 遇到了以下问题 最终还是使用了Epic框架
+    
+### 问题1 Whale框架不可用
+    在注入的dex中System.load加载libwhale.so以后，JNI_Onload就加载失败 报错信息
+    JNI_ERR returned from JNI_OnLoad in "/data/shithack/libwhale.so"
+    机型 小米6 安卓7.1
+    尝试在源码里插log调试（或者直接用更稳定的Epic）
+    经测试Epic稳定可用
+    
+### 问题2 dlopen和dlsym 获取不到libart.so
+    这个是7.0以上so文件安全性 关于namespace的问题
+    使用了Nougat_dlfunctions 的fake_dlfcn也没有用
+    只能从initzygote.so里抠代码出来 居然可以 奇怪
+    分析代码 关键点
+```c
+   while ( !handle && i <= 1 )
+    {
+        dlerror();
+        handle = dlopen(0, 1);
+        error = dlerror();
+        if ( error )
+            LOGD( "BCINJECT.native failed to load %s: %s", paths[i], error);
+        if ( handle )
+            LOGD( "BCINJECT.native Android runtime loaded from %s", paths[i]);
+        else
+            ++i;
+    }
+```
+    乍一看非常奇怪 怎么第一个参数可以是NULL呢 随便google一下没有找到答案
+    于是开始dlopen分析源码
+[参考dlopen分析文章](https://blog.csdn.net/SweeNeil/article/details/83744843)  
+[参考函数文档](https://www.xuebuyuan.com/1912632.html)
+    
+If file is a null pointer, dlopen() shall return a global symbol table handle for the currently running process image. This symbol table handle shall provide access to the symbols from an ordered set of executable object files consisting of the original program image file, any executable object files loaded at program start-up as specified by that process file (for example, shared libraries), and the set of executable object files loaded using dlopen() operations with the RTLD_GLOBAL flag. As the latter set of executable object files can change during execution, the set of symbols made available by this symbol table handle can also change dynamically.  
+    
+    第一个参数fileName为空时，handle指向当前进程镜像的全局符号表。
+    handle类似迭代器指针，每调用一次指向下一个模块。
+    在Android中，符号表首部的应该就是jvm相关 libart或libdvm。
+    所以我们可以获取到JavaVM* 获取到JNIEnv*
+    
+
+### 问题3 插件目录归属用户问题
+    插件加载的目录归属用户 需要与目标进程的用户相同
+    如果是zygote注入 都是root 问题不大 其他进程需要经常chown插件目录
+    
+## Epic代码编写
+    Epic就是Dexposed在ART上的续命，兼容了Dexposed的语法，对于Xposed移植非常友好
+    示例如下
+```java
+public class HookMain {
+
+    public static void hookAll() {
+        DexposedBridge.findAndHookMethod(Log.class,
+                "e", String.class, String.class, new XC_MethodHook() {
+                    @Override
+                    protected void beforeHookedMethod(XC_MethodHook.MethodHookParam param) throws Throwable {
+                        //Log.e("SHITHOOK", "Log " + String.valueOf(param.args[0])+" "+String.valueOf(param.args[1]));
+                        param.args[1] = "test hooked success";
+                    }
+                });
+
+        DexposedBridge.findAndHookMethod(Activity.class,
+                "onCreate", Bundle.class, new XC_MethodHook() {
+                    @Override
+                    protected void afterHookedMethod(XC_MethodHook.MethodHookParam param) throws Throwable {
+                        Log.e("SHITHOOK", "onCreate " + String.valueOf(param.thisObject));
+                    }
+                });
+    }
+}
+```
+
+    
+    
+    
+    
+    
+    
+    
 
     
 
