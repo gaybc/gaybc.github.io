@@ -1,3 +1,15 @@
+---
+layout:     post                    # 使用的布局（不需要改）
+title:      NoSQL入门	        # 标题 
+subtitle:   Redis      #副标题
+date:       2019-09-10              # 时间
+author:     BC                      # 作者
+catalog: true                       # 是否归档
+tags:                               #标签
+    - Redis
+---
+
+
 ```mermaid
 graph LR
 A[NOSQL] -->B(为什么用NOSQL)
