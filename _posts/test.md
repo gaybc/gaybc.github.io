@@ -1,0 +1,27 @@
+```mermaid
+graph LR
+A[NOSQL] -->B(为什么用NOSQL)
+    B-->C1(MYSQL不够用)
+        C1-->D(数据量大 单机放不下)
+        C1-->E(索引B+树 单机内存放不下)
+        C1-->F(一个实例不能承受访问量)
+    B-->C2(过去的改进方案)
+    	C2-->D2("memcached高速缓存+垂直切分(不同表数据放不同库)")
+    	C2-->E2(主从读写分离)
+    	C2-->F2("分表分库+水平拆分(同表数据放不同库)+mysql集群")
+    		F2-->F3("主库写压力大，MySQL用InnoDB(行锁)代替MyISAM(表锁)")
+    	C2-->G2(MYSQL的扩展性瓶颈)
+    B-->C3(现在的业务需求)
+        C3-->D3("用户数据、行为日志增加 SQL不适合大数据挖掘")
+A-->B2(什么是NOSQL)
+	B2-->C4(Not Only MySQL 非关系型DB 数据存储不需要固定模式)
+	B2-->D4(K-V存储)
+	B2-->E4("不用ACID 原子 一致 隔离 持久")
+	B2-->F4(Redis Memcached Mongodb)
+A-->B3(怎么玩)
+	B3-->C5(KV)
+	B3-->D5(Cache)
+	B3-->E5(Persistence)
+    
+
+```
